@@ -88,10 +88,22 @@ class ViperEffect(
         effect = null
     }
 
+    val hasControl: Boolean
+        get() =
+            try {
+                effect?.hasControl() ?: false
+            } catch (_: Exception) {
+                false
+            }
+
     var enabled: Boolean
         get() = effect?.enabled ?: false
         set(value) {
-            effect?.enabled = value
+            try {
+                effect?.enabled = value
+            } catch (e: Exception) {
+                FileLogger.e("Effect", "Failed to set enabled=$value for session $audioSessionId", e)
+            }
         }
 
     context(fx: AudioEffect, m: Method)

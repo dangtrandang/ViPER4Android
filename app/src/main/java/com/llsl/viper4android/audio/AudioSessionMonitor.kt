@@ -11,7 +11,7 @@ import com.llsl.viper4android.utils.RootShell
 
 class AudioSessionMonitor(
     private val context: Context,
-    private val onSessionOpen: (sessionId: Int, packageName: String) -> Unit,
+    private val onPlaybackActive: (sessionId: Int, packageName: String) -> Unit,
     private val onSessionClose: (sessionId: Int) -> Unit,
 ) {
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -19,6 +19,7 @@ class AudioSessionMonitor(
     private val activePiids = mutableMapOf<Int, SessionInfo>()
     private var registered = false
     private var pendingResolve = false
+    private var lastMediaPackage: String = ""
 
     private val isSystemPrivileged: Boolean by lazy {
         context.checkSelfPermission("android.permission.MODIFY_AUDIO_ROUTING") ==
@@ -53,7 +54,19 @@ class AudioSessionMonitor(
         FileLogger.i(TAG, "Playback monitor stopped")
     }
 
-    fun getActivePackage(): String? = activePiids.values.lastOrNull()?.packageName
+    fun getActivePackage(): String {
+        val currentMediaPkg =
+            activePiids.values.lastOrNull {
+                it.packageName.isNotEmpty() &&
+                    !it.packageName.startsWith("android") &&
+                    it.packageName != "com.android.systemui"
+            }?.packageName
+        if (!currentMediaPkg.isNullOrEmpty()) {
+            lastMediaPackage = currentMediaPkg
+            return currentMediaPkg
+        }
+        return lastMediaPackage
+    }
 
     private fun handlePlaybackChange() {
         if (pendingResolve) return
@@ -92,18 +105,17 @@ class AudioSessionMonitor(
                 if (info.sessionId <= 0) continue
                 val alreadyTracked = activePiids.values.any { it.sessionId == info.sessionId }
                 activePiids[piid] = info
-                if (!alreadyTracked) {
-                    FileLogger.i(
-                        TAG,
-                        "New session piid=$piid session=${info.sessionId} (${info.packageName})",
-                    )
-                    onSessionOpen(info.sessionId, info.packageName)
-                } else {
-                    FileLogger.d(
-                        TAG,
-                        "Additional piid=$piid for existing session=${info.sessionId} (${info.packageName})",
-                    )
+                if (info.packageName.isNotEmpty() &&
+                    !info.packageName.startsWith("android") &&
+                    info.packageName != "com.android.systemui"
+                ) {
+                    lastMediaPackage = info.packageName
                 }
+                FileLogger.i(
+                    TAG,
+                    "Active playback piid=$piid session=${info.sessionId} (${info.packageName}) alreadyTracked=$alreadyTracked",
+                )
+                onPlaybackActive(info.sessionId, info.packageName)
             }
 
             for (piid in gonePiids) {
@@ -158,59 +170,81 @@ class AudioSessionMonitor(
         try {
             val process =
                 RootShell.exec(
-                    "dumpsys audio | grep -E 'state:started|new player'",
+                    "dumpsys audio | grep -E 'AudioPlaybackConfiguration|state:started|new player'",
                     timeoutSec = DUMPSYS_TIMEOUT_SEC,
                 )
             val text = process.inputStream.bufferedReader().readText()
 
-            val playerSessions = mutableMapOf<Int, SessionInfo>()
-            for (line in text.lineSequence()) {
-                val trimmed = line.trim()
-                val piid =
-                    PIID_PATTERN
-                        .find(trimmed)
-                        ?.groupValues
-                        ?.get(1)
-                        ?.toIntOrNull() ?: continue
-                val sid =
-                    SESSION_PATTERN
-                        .find(trimmed)
-                        ?.groupValues
-                        ?.get(1)
-                        ?.toIntOrNull() ?: 0
-                val uid =
-                    UID_PATTERN
-                        .find(trimmed)
-                        ?.groupValues
-                        ?.get(1)
-                        ?.toIntOrNull()
-                var pkg = PACKAGE_PATTERN.find(trimmed)?.groupValues?.get(1) ?: ""
-                if (pkg.isEmpty() && uid != null) {
-                    pkg = context.packageManager.getPackagesForUid(uid)?.firstOrNull() ?: ""
-                }
-                if (sid > 0 && (piid !in playerSessions || pkg.isNotEmpty())) {
-                    playerSessions[piid] = SessionInfo(sid, pkg)
-                }
-            }
+            val apcLines = text.lineSequence().filter { it.contains("AudioPlaybackConfiguration") }.toList()
+            if (apcLines.isNotEmpty()) {
+                val result = mutableMapOf<Int, SessionInfo>()
+                for (line in apcLines) {
+                    val trimmed = line.trim()
+                    if (!trimmed.contains("state:started")) continue
 
-            val activePiidSet = mutableSetOf<Int>()
-            for (line in text.lineSequence()) {
-                if (!line.contains("state:started")) continue
-                val piid =
-                    PIID_PATTERN
-                        .find(line)
-                        ?.groupValues
-                        ?.get(1)
-                        ?.toIntOrNull() ?: continue
-                activePiidSet.add(piid)
-            }
+                    val piid = PIID_PATTERN.find(trimmed)?.groupValues?.get(1)?.toIntOrNull() ?: continue
+                    val sid = SESSION_PATTERN.find(trimmed)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                    if (sid <= 0) continue
 
-            val result = mutableMapOf<Int, SessionInfo>()
-            for (piid in activePiidSet) {
-                val info = playerSessions[piid] ?: continue
-                result[piid] = info
+                    val uid = UID_PATTERN.find(trimmed)?.groupValues?.get(1)?.toIntOrNull()
+                    var pkg = PACKAGE_PATTERN.find(trimmed)?.groupValues?.get(1) ?: ""
+                    if (pkg.isEmpty() && uid != null) {
+                        pkg = context.packageManager.getPackagesForUid(uid)?.firstOrNull() ?: ""
+                    }
+                    result[piid] = SessionInfo(sid, pkg)
+                }
+                result
+            } else {
+                val currentText = text.substringBefore("Audio event log:")
+                val playerSessions = mutableMapOf<Int, SessionInfo>()
+                for (line in currentText.lineSequence()) {
+                    val trimmed = line.trim()
+                    val piid =
+                        PIID_PATTERN
+                            .find(trimmed)
+                            ?.groupValues
+                            ?.get(1)
+                            ?.toIntOrNull() ?: continue
+                    val sid =
+                        SESSION_PATTERN
+                            .find(trimmed)
+                            ?.groupValues
+                            ?.get(1)
+                            ?.toIntOrNull() ?: 0
+                    val uid =
+                        UID_PATTERN
+                            .find(trimmed)
+                            ?.groupValues
+                            ?.get(1)
+                            ?.toIntOrNull()
+                    var pkg = PACKAGE_PATTERN.find(trimmed)?.groupValues?.get(1) ?: ""
+                    if (pkg.isEmpty() && uid != null) {
+                        pkg = context.packageManager.getPackagesForUid(uid)?.firstOrNull() ?: ""
+                    }
+                    if (sid > 0 && (piid !in playerSessions || pkg.isNotEmpty())) {
+                        playerSessions[piid] = SessionInfo(sid, pkg)
+                    }
+                }
+
+                val activePiidSet = mutableSetOf<Int>()
+                for (line in currentText.lineSequence()) {
+                    if (!line.contains("state:started")) continue
+                    val piid =
+                        PIID_PATTERN
+                            .find(line)
+                            ?.groupValues
+                            ?.get(1)
+                            ?.toIntOrNull() ?: continue
+                    activePiidSet.add(piid)
+                }
+
+                val result = mutableMapOf<Int, SessionInfo>()
+                for (piid in activePiidSet) {
+                    val info = playerSessions[piid] ?: continue
+                    result[piid] = info
+                }
+                result
             }
-            result
         } catch (e: Exception) {
             FileLogger.e(TAG, "dumpsys query failed", e)
             null

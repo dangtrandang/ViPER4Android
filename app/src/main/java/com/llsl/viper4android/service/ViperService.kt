@@ -329,7 +329,7 @@ class ViperService : LifecycleService() {
         val monitor =
             AudioSessionMonitor(
                 context = this,
-                onSessionOpen = { sessionId, pkg -> openSession(sessionId, pkg) },
+                onPlaybackActive = { sessionId, pkg -> onPlaybackActive(sessionId, pkg) },
                 onSessionClose = { sessionId -> closeSession(sessionId) },
             )
         monitor.start()
@@ -341,21 +341,21 @@ class ViperService : LifecycleService() {
         sessionMonitor = null
     }
 
-    private fun openSession(
+    private fun onPlaybackActive(
         sessionId: Int,
         packageName: String,
     ) {
         if (!masterEnabled) {
             FileLogger.d(
                 "Service",
-                "Master off: skipping per-app session $sessionId ($packageName)",
+                "Master off: skipping playback active $sessionId ($packageName)",
             )
             return
         }
         if (globalMode) {
             FileLogger.i(
                 "Service",
-                "Global mode dynamic switch: playback from $packageName",
+                "Global mode playback active: $packageName (session $sessionId)",
             )
             val globalEffect = effectRegistry.globalEffect()
             if (globalEffect != null) {
@@ -372,16 +372,26 @@ class ViperService : LifecycleService() {
             )
             return
         }
-        if (effectRegistry.isSessionOpen(sessionId)) {
-            FileLogger.w("Service", "Session $sessionId already open")
-            return
-        }
 
-        val (effect, _) = effectRegistry.openSession(sessionId, packageName) ?: return
+        val effect =
+            if (!effectRegistry.isSessionOpen(sessionId)) {
+                val (fx, _) = effectRegistry.openSession(sessionId, packageName) ?: return
+                fx
+            } else {
+                val fx = effectRegistry.getSessionEffect(sessionId)
+                if (fx == null || !fx.hasControl) {
+                    effectRegistry.closeSession(sessionId)
+                    val (newFx, _) = effectRegistry.openSession(sessionId, packageName) ?: return
+                    newFx
+                } else {
+                    fx
+                }
+            }
 
+        effect.enabled = true
         lifecycleScope.launch {
             applySessionPreset(sessionId, packageName, effect)
-            FileLogger.i("Service", "Applied state to session $sessionId ($packageName)")
+            FileLogger.i("Service", "Applied/Refreshed state to session $sessionId ($packageName)")
         }
     }
 
@@ -390,6 +400,7 @@ class ViperService : LifecycleService() {
         packageName: String,
         effect: ViperEffect,
     ) {
+        effect.enabled = true
         val assignedPresetName = perAppPresets[packageName]
         val state: EffectState = if (!assignedPresetName.isNullOrEmpty()) {
             val preset = repository.getPresetByName(assignedPresetName)
@@ -427,13 +438,16 @@ class ViperService : LifecycleService() {
             val globalEffect = effectRegistry.globalEffect() ?: return
             lifecycleScope.launch {
                 val activePkg = sessionMonitor?.getActivePackage().orEmpty()
-                applySessionPreset(0, activePkg, globalEffect)
+                if (activePkg.isNotEmpty()) {
+                    applySessionPreset(0, activePkg, globalEffect)
+                }
             }
             return
         }
         lifecycleScope.launch {
             for ((sessionId, pkg) in effectRegistry.openSessions()) {
                 val effect = effectRegistry.getSessionEffect(sessionId) ?: continue
+                effect.enabled = true
                 applySessionPreset(sessionId, pkg, effect)
             }
         }
@@ -445,7 +459,9 @@ class ViperService : LifecycleService() {
             if (globalEffect != null) {
                 lifecycleScope.launch {
                     val activePkg = sessionMonitor?.getActivePackage().orEmpty()
-                    applySessionPreset(0, activePkg, globalEffect)
+                    if (activePkg.isNotEmpty()) {
+                        applySessionPreset(0, activePkg, globalEffect)
+                    }
                 }
             }
             return
