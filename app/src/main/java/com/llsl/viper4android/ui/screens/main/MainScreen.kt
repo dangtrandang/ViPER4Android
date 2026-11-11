@@ -86,6 +86,7 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     val debugMode by viewModel.debugModeEnabled.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
     val excludedApps by viewModel.excludedApps.collectAsStateWithLifecycle()
+    val perAppPresets by viewModel.perAppPresets.collectAsStateWithLifecycle()
 
     var showPresetDialog by remember { mutableStateOf(false) }
     var showDriverStatusDialog by remember { mutableStateOf(false) }
@@ -93,6 +94,7 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
     var showDebugLog by remember { mutableStateOf(false) }
     var showDeviceDialog by remember { mutableStateOf(false) }
     var showExcludedAppsDialog by remember { mutableStateOf(false) }
+    var showPerAppPresetsDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val appVersionName =
@@ -113,6 +115,16 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
             onToggle = viewModel::setAppExcluded,
             loadInstalledApps = viewModel::loadInstalledApps,
             onDismiss = { showExcludedAppsDialog = false },
+        )
+    }
+
+    if (showPerAppPresetsDialog) {
+        com.llsl.viper4android.ui.screens.settings.PerAppPresetsDialog(
+            perAppPresets = perAppPresets,
+            presets = presets,
+            onSelectPreset = viewModel::setPerAppPreset,
+            loadInstalledApps = viewModel::loadInstalledApps,
+            onDismiss = { showPerAppPresetsDialog = false },
         )
     }
 
@@ -224,6 +236,7 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
             debugModeEnabled = debugMode,
             onGlobalModeChanged = viewModel::toggleGlobalMode,
             onOpenExcludedApps = { showExcludedAppsDialog = true },
+            onOpenPerAppPresets = { showPerAppPresetsDialog = true },
             driverStatus = driverStatus,
             appVersionName = appVersionName,
             onAutoStartChanged = viewModel::toggleAutoStart,

@@ -241,12 +241,14 @@
     <string name="settings_aidl_mode">AIDL mode</string>
     <string name="settings_global_mode">Global mode</string>
     <string name="settings_excluded_apps">Excluded apps</string>
+    <string name="settings_per_app_presets">Per-app presets</string>
     <string name="settings_import_preset">Import Preset</string>
     <string name="settings_import_kernel">Import Kernel</string>
     <string name="settings_import_vdc">Import VDC</string>
     <string name="settings_auto_start_desc">Start audio service on boot</string>
     <string name="settings_global_mode_desc">Apply effects globally</string>
     <string name="settings_excluded_apps_desc">Skip audio session for selected apps</string>
+    <string name="settings_per_app_presets_desc">Assign specific presets to individual applications</string>
     <string name="settings_import_preset_desc">Load a .json preset file</string>
     <string name="settings_import_kernel_desc">Convolver impulse response</string>
     <string name="settings_import_vdc_desc">DDC calibration file</string>
@@ -261,6 +263,14 @@
     <string name="excluded_apps_search">Search apps</string>
     <string name="excluded_apps_loading">Loading apps\u2026</string>
     <string name="excluded_apps_show_system">Show system apps</string>
+
+    <!-- Per-App Presets -->
+    <string name="per_app_presets_title">Per-App Presets</string>
+    <string name="per_app_presets_search">Search apps</string>
+    <string name="per_app_presets_loading">Loading apps\u2026</string>
+    <string name="per_app_presets_show_system">Show system apps</string>
+    <string name="per_app_presets_default">Default (Device Profile)</string>
+    <string name="per_app_presets_select">Select Preset</string>
 
     <!-- Update -->
     <string name="update_checking">Checking for updates\u2026</string>

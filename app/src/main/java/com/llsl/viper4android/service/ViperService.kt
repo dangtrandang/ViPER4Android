@@ -26,6 +26,7 @@ import com.llsl.viper4android.viper.AidlTransport
 import com.llsl.viper4android.viper.BulkKind
 import com.llsl.viper4android.viper.DriverStatus
 import com.llsl.viper4android.viper.EffectRegistry
+import com.llsl.viper4android.viper.ViperEffect
 import com.llsl.viper4android.viper.HidlTransport
 import com.llsl.viper4android.viper.ParamValue
 import com.llsl.viper4android.viper.ViperParams
@@ -91,6 +92,9 @@ class ViperService : LifecycleService() {
     @Volatile
     private var excludedApps: Set<String> = emptySet()
 
+    @Volatile
+    private var perAppPresets: Map<String, String> = emptyMap()
+
     private data class DecodedKernel(
         val samples: FloatArray,
         val rawBytes: ByteArray,
@@ -144,6 +148,12 @@ class ViperService : LifecycleService() {
             ensureConfigLoaded()
             launch {
                 repository.getStringSetPreference(ViperRepository.PREF_EXCLUDED_APPS).collect { excludedApps = it }
+            }
+            launch {
+                repository.getAppPresets().collect {
+                    perAppPresets = it
+                    reapplyAllOpenSessions()
+                }
             }
             startAudioOutputMonitor()
         }
@@ -202,6 +212,9 @@ class ViperService : LifecycleService() {
         }
         effectRegistry.liveEffects().forEach { it.enabled = true }
         transport.pushFullState(state)
+        if (!globalMode) {
+            reapplyAllOpenSessions()
+        }
     }
 
     private var currentServiceDeviceId: String = ""
@@ -361,11 +374,57 @@ class ViperService : LifecycleService() {
             return
         }
 
-        effectRegistry.openSession(sessionId, packageName) ?: return
+        val (effect, _) = effectRegistry.openSession(sessionId, packageName) ?: return
 
         lifecycleScope.launch {
-            dispatchFullStateToEffect()
-            FileLogger.i("Service", "Applied full state to session $sessionId")
+            applySessionPreset(sessionId, packageName, effect)
+            FileLogger.i("Service", "Applied state to session $sessionId ($packageName)")
+        }
+    }
+
+    private suspend fun applySessionPreset(
+        sessionId: Int,
+        packageName: String,
+        effect: ViperEffect,
+    ) {
+        val assignedPresetName = perAppPresets[packageName]
+        val state: EffectState = if (!assignedPresetName.isNullOrEmpty()) {
+            val preset = repository.getPresetByName(assignedPresetName)
+            if (preset != null) {
+                val base = currentDeviceState()
+                deserializeEffectPrefs(JSONObject(preset.settingsJson), base).also {
+                    FileLogger.i("Service", "Per-App: Applied preset '$assignedPresetName' for $packageName (session $sessionId)")
+                }
+            } else {
+                currentDeviceState()
+            }
+        } else {
+            currentDeviceState()
+        }
+
+        val snapshot = ParamValue.Bytes(com.llsl.viper4android.viper.ViperParamsSerializer.toByteArray(state))
+        val snapshotApplied = effect.setParameter(ViperParams.PARAM_SET_FULL_PARAMS, snapshot)
+        if (!snapshotApplied) {
+            FileLogger.w("Service", "Failed to dispatch per-app state to session $sessionId ($packageName)")
+        }
+        val hasDdc = state.ddc.enable && state.ddc.device.isNotEmpty()
+        val hasKernel = state.convolver.enable && state.convolver.kernelFile.isNotEmpty()
+        if (hasDdc || hasKernel) {
+            transport.bulkSideChannels?.invoke(
+                if (hasDdc) state.ddc.device else "",
+                if (hasKernel) state.convolver.kernelFile else "",
+                true,
+            )
+        }
+    }
+
+    fun reapplyAllOpenSessions() {
+        if (!masterEnabled || globalMode) return
+        lifecycleScope.launch {
+            for ((sessionId, pkg) in effectRegistry.openSessions()) {
+                val effect = effectRegistry.getSessionEffect(sessionId) ?: continue
+                applySessionPreset(sessionId, pkg, effect)
+            }
         }
     }
 

@@ -44,6 +44,7 @@ fun SettingsDialog(
     onAutoStartChanged: (Boolean) -> Unit,
     onGlobalModeChanged: (Boolean) -> Unit,
     onOpenExcludedApps: () -> Unit,
+    onOpenPerAppPresets: () -> Unit = {},
     onImportPreset: () -> Unit,
     onImportKernel: () -> Unit,
     onDebugUnlocked: () -> Unit,
@@ -98,6 +99,12 @@ fun SettingsDialog(
                             label = stringResource(R.string.settings_excluded_apps),
                             subtitle = stringResource(R.string.settings_excluded_apps_desc),
                             onClick = onOpenExcludedApps,
+                        )
+                        RowDivider()
+                        NavRow(
+                            label = stringResource(R.string.settings_per_app_presets),
+                            subtitle = stringResource(R.string.settings_per_app_presets_desc),
+                            onClick = onOpenPerAppPresets,
                         )
                     }
                 }

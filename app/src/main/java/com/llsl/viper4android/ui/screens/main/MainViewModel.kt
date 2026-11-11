@@ -149,6 +149,9 @@ class MainViewModel
         val excludedApps: StateFlow<Set<String>>
             field: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
 
+        val perAppPresets: StateFlow<Map<String, String>>
+            field: MutableStateFlow<Map<String, String>> = MutableStateFlow(emptyMap())
+
         val updateState: StateFlow<UpdateState>
             field: MutableStateFlow<UpdateState> = MutableStateFlow(UpdateState())
 
@@ -365,6 +368,9 @@ class MainViewModel
             aidlModeEnabled.value = repository.aidlMode
             viewModelScope.launch {
                 repository.getStringSetPreference(PREF_EXCLUDED_APPS).collect { excludedApps.value = it }
+            }
+            viewModelScope.launch {
+                repository.getAppPresets().collect { perAppPresets.value = it }
             }
         }
 
@@ -1565,6 +1571,23 @@ class MainViewModel
             val next = if (excluded) excludedApps.value + packageName else excludedApps.value - packageName
             excludedApps.value = next
             viewModelScope.launch { repository.setStringSetPreference(PREF_EXCLUDED_APPS, next) }
+        }
+
+        fun setPerAppPreset(
+            packageName: String,
+            presetName: String?,
+        ) {
+            val next = perAppPresets.value.toMutableMap()
+            if (presetName.isNullOrEmpty()) {
+                next.remove(packageName)
+            } else {
+                next[packageName] = presetName
+            }
+            perAppPresets.value = next
+            viewModelScope.launch {
+                repository.setAppPreset(packageName, presetName)
+                viperService?.reapplyAllOpenSessions()
+            }
         }
 
         fun loadInstalledApps(onLoaded: (List<InstalledAppInfo>) -> Unit) {

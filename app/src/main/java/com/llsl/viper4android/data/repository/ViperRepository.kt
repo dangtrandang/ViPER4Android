@@ -17,6 +17,7 @@ import com.llsl.viper4android.data.model.DeviceSettings
 import com.llsl.viper4android.data.model.DsPreset
 import com.llsl.viper4android.data.model.EqPreset
 import com.llsl.viper4android.data.model.Preset
+import org.json.JSONObject
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
@@ -41,6 +42,8 @@ class ViperRepository
         fun getAllPresets(): Flow<List<Preset>> = presetDao.getAll()
 
         suspend fun getPresetById(id: Long): Preset? = presetDao.getById(id)
+
+        suspend fun getPresetByName(name: String): Preset? = presetDao.getByName(name)
 
         suspend fun savePreset(preset: Preset): Long = presetDao.insert(preset)
 
@@ -206,6 +209,30 @@ class ViperRepository
             dataStore.edit { it[stringPreferencesKey(key)] = value.joinToString("\n") }
         }
 
+        fun getAppPresets(): Flow<Map<String, String>> =
+            getStringPreference(PREF_PER_APP_PRESETS, "{}").map { jsonStr ->
+                runCatching {
+                    val json = JSONObject(jsonStr)
+                    val map = mutableMapOf<String, String>()
+                    json.keys().forEach { key ->
+                        val v = json.optString(key)
+                        if (v.isNotEmpty()) map[key] = v
+                    }
+                    map.toMap()
+                }.getOrDefault(emptyMap())
+            }
+
+        suspend fun setAppPreset(packageName: String, presetName: String?) {
+            val currentStr = getStringPreference(PREF_PER_APP_PRESETS, "{}").first()
+            val json = runCatching { JSONObject(currentStr) }.getOrDefault(JSONObject())
+            if (presetName.isNullOrEmpty()) {
+                json.remove(packageName)
+            } else {
+                json.put(packageName, presetName)
+            }
+            setStringPreference(PREF_PER_APP_PRESETS, json.toString())
+        }
+
         @Volatile private var initDone = false
         private val initMutex = Mutex()
 
@@ -236,5 +263,6 @@ class ViperRepository
             const val PREF_DEBUG_MODE = "debug_mode"
             const val PREF_V2_INITIALIZED = "v2_initialized"
             const val PREF_EXCLUDED_APPS = "excluded_apps"
+            const val PREF_PER_APP_PRESETS = "per_app_presets"
         }
     }

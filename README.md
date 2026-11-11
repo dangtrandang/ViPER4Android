@@ -42,6 +42,7 @@ Material Design 3 UI for ViPER4Android FX. Full feature set of the ViPER4Android
 - Material Design 3 with dynamic theming
 - AIDL and legacy (non-AIDL) HAL support
 - Per-device profile management and auto switching
+- **Deep Per-App Dynamic Presets**: Assign dedicated presets to individual apps (e.g., YouTube -> Voice Clear, TikTok -> Bass Boost). The audio engine automatically applies custom presets per audio session without audio glitches or manual switching.
 - Preset import / export
 - Global mode and per-app mode
 - In-app log viewer (tap `Driver Version` 7 times in Settings)
@@ -65,11 +66,17 @@ Material Design 3 UI for ViPER4Android FX. Full feature set of the ViPER4Android
     > routes all audio through session 0, so one effect instance processes everything. This is the
     > simplest and most compatible mode.
 
-- **What is Per-App Mode?**
+- **What is Per-App Mode & Deep Per-App Dynamic Presets?**
 
     > Creates a separate AudioEffect for each audio player's session ID. The DSP processes each
     > app's audio independently. Requires **either root or installation as a privileged system app**
     > (see below).
+    >
+    > **Deep Per-App Dynamic Presets:** You can map individual applications to specific presets in
+    > **Settings > Per-app presets**. For example, assign a clean, non-reverberant Voice Preset to YouTube
+    > and Facebook for crisp movie dialogues, while assigning a rich, bass-enhanced preset to TikTok and
+    > music players. When each app plays audio, the engine automatically routes that app's stream to its
+    > assigned preset in real-time. No manual switching or audio hiccups required.
 
 - **Why does Per-App Mode require root (or a system-app install)?**
 
