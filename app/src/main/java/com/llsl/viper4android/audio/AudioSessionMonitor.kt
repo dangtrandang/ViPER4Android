@@ -178,7 +178,16 @@ class AudioSessionMonitor(
                         ?.groupValues
                         ?.get(1)
                         ?.toIntOrNull() ?: 0
-                val pkg = PACKAGE_PATTERN.find(trimmed)?.groupValues?.get(1) ?: ""
+                val uid =
+                    UID_PATTERN
+                        .find(trimmed)
+                        ?.groupValues
+                        ?.get(1)
+                        ?.toIntOrNull()
+                var pkg = PACKAGE_PATTERN.find(trimmed)?.groupValues?.get(1) ?: ""
+                if (pkg.isEmpty() && uid != null) {
+                    pkg = context.packageManager.getPackagesForUid(uid)?.firstOrNull() ?: ""
+                }
                 if (sid > 0 && (piid !in playerSessions || pkg.isNotEmpty())) {
                     playerSessions[piid] = SessionInfo(sid, pkg)
                 }
@@ -214,5 +223,6 @@ class AudioSessionMonitor(
         private val PIID_PATTERN = Regex("""piid:(\d+)""")
         private val SESSION_PATTERN = Regex("""session(?:Id)?:(\d+)""")
         private val PACKAGE_PATTERN = Regex("""package:(\S+)""")
+        private val UID_PATTERN = Regex("""u(?:id)?/pid:(\d+)/\d+""")
     }
 }
