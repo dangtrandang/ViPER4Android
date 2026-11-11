@@ -93,18 +93,18 @@ fun SettingsDialog(
                         checked = globalModeEnabled,
                         onCheckedChange = onGlobalModeChanged,
                     )
+                    RowDivider()
+                    NavRow(
+                        label = stringResource(R.string.settings_per_app_presets),
+                        subtitle = stringResource(R.string.settings_per_app_presets_desc),
+                        onClick = onOpenPerAppPresets,
+                    )
                     if (!globalModeEnabled) {
                         RowDivider()
                         NavRow(
                             label = stringResource(R.string.settings_excluded_apps),
                             subtitle = stringResource(R.string.settings_excluded_apps_desc),
                             onClick = onOpenExcludedApps,
-                        )
-                        RowDivider()
-                        NavRow(
-                            label = stringResource(R.string.settings_per_app_presets),
-                            subtitle = stringResource(R.string.settings_per_app_presets_desc),
-                            onClick = onOpenPerAppPresets,
                         )
                     }
                 }

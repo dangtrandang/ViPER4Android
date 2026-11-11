@@ -207,14 +207,11 @@ class ViperService : LifecycleService() {
         }
         if (globalMode) {
             if (effectRegistry.globalEffect() == null) initGlobalEffect()
-        } else {
-            if (sessionMonitor == null) startSessionMonitor()
         }
+        if (sessionMonitor == null) startSessionMonitor()
         effectRegistry.liveEffects().forEach { it.enabled = true }
         transport.pushFullState(state)
-        if (!globalMode) {
-            reapplyAllOpenSessions()
-        }
+        reapplyAllOpenSessions()
     }
 
     private var currentServiceDeviceId: String = ""
@@ -356,10 +353,16 @@ class ViperService : LifecycleService() {
             return
         }
         if (globalMode) {
-            FileLogger.d(
+            FileLogger.i(
                 "Service",
-                "Global mode: skipping per-app session $sessionId ($packageName)",
+                "Global mode dynamic switch: playback from $packageName",
             )
+            val globalEffect = effectRegistry.globalEffect()
+            if (globalEffect != null) {
+                lifecycleScope.launch {
+                    applySessionPreset(0, packageName, globalEffect)
+                }
+            }
             return
         }
         if (packageName in excludedApps) {
@@ -419,7 +422,15 @@ class ViperService : LifecycleService() {
     }
 
     fun reapplyAllOpenSessions() {
-        if (!masterEnabled || globalMode) return
+        if (!masterEnabled) return
+        if (globalMode) {
+            val globalEffect = effectRegistry.globalEffect() ?: return
+            lifecycleScope.launch {
+                val activePkg = sessionMonitor?.getActivePackage().orEmpty()
+                applySessionPreset(0, activePkg, globalEffect)
+            }
+            return
+        }
         lifecycleScope.launch {
             for ((sessionId, pkg) in effectRegistry.openSessions()) {
                 val effect = effectRegistry.getSessionEffect(sessionId) ?: continue
@@ -429,6 +440,16 @@ class ViperService : LifecycleService() {
     }
 
     private fun closeSession(sessionId: Int) {
+        if (globalMode) {
+            val globalEffect = effectRegistry.globalEffect()
+            if (globalEffect != null) {
+                lifecycleScope.launch {
+                    val activePkg = sessionMonitor?.getActivePackage().orEmpty()
+                    applySessionPreset(0, activePkg, globalEffect)
+                }
+            }
+            return
+        }
         effectRegistry.closeSession(sessionId)
     }
 

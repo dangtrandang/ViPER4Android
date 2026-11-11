@@ -53,6 +53,8 @@ class AudioSessionMonitor(
         FileLogger.i(TAG, "Playback monitor stopped")
     }
 
+    fun getActivePackage(): String? = activePiids.values.lastOrNull()?.packageName
+
     private fun handlePlaybackChange() {
         if (pendingResolve) return
         pendingResolve = true
