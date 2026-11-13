@@ -221,6 +221,8 @@
     <string name="preset_tap_for_details">Tap for details</string>
     <string name="preset_label_created">Created</string>
     <string name="preset_label_updated">Last Updated</string>
+    <string name="preset_applied">Applied preset: %1$s</string>
+    <string name="preset_applied_to_app">Applied preset \'%1$s\' for %2$s</string>
 
     <!-- Driver Status -->
     <string name="driver_not_found">Driver not found</string>

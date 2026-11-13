@@ -1099,13 +1099,22 @@ class MainViewModel
             }
         }
 
-        fun loadDevicePreset(deviceId: String) {
+        fun loadDevicePreset(
+            deviceId: String,
+            onApplied: ((String) -> Unit)? = null,
+        ) {
             viewModelScope.launch {
                 val saved = repository.getDeviceSettings(deviceId) ?: return@launch
                 val json = JSONObject(saved.settingsJson)
                 uiState.update { deserializeEffectPrefs(json, it) }
                 saveEffectPrefs(repository, uiState.value)
+                saveCurrentDeviceSettings()
                 dispatchFullState()
+                val name = saved.deviceName.ifEmpty { deviceId }
+                viperService?.updateActivePresetNotification(name)
+                withContext(Dispatchers.Main) {
+                    onApplied?.invoke(name)
+                }
             }
         }
 
@@ -1420,13 +1429,21 @@ class MainViewModel
             }
         }
 
-        fun loadPreset(id: Long) {
+        fun loadPreset(
+            id: Long,
+            onApplied: ((String) -> Unit)? = null,
+        ) {
             viewModelScope.launch {
                 val preset = repository.getPresetById(id) ?: return@launch
                 val json = JSONObject(preset.settingsJson)
                 uiState.update { deserializeEffectPrefs(json, it) }
                 saveEffectPrefs(repository, uiState.value)
+                saveCurrentDeviceSettings()
                 dispatchFullState()
+                viperService?.updateActivePresetNotification(preset.name)
+                withContext(Dispatchers.Main) {
+                    onApplied?.invoke(preset.name)
+                }
             }
         }
 

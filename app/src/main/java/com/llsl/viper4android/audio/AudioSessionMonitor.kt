@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.media.AudioPlaybackConfiguration
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import com.llsl.viper4android.utils.FileLogger
 import com.llsl.viper4android.utils.RootShell
 
@@ -18,8 +19,20 @@ class AudioSessionMonitor(
     private val mainHandler = Handler(Looper.getMainLooper())
     private val activePiids = mutableMapOf<Int, SessionInfo>()
     private var registered = false
-    private var pendingResolve = false
+    @Volatile
+    private var isResolving = false
+    @Volatile
+    private var hasPendingChanges = false
     private var lastMediaPackage: String = ""
+
+    private val wakeLock: PowerManager.WakeLock? by lazy {
+        try {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ViPER4Android:AudioSessionMonitor")
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     private val isSystemPrivileged: Boolean by lazy {
         context.checkSelfPermission("android.permission.MODIFY_AUDIO_ROUTING") ==
@@ -69,13 +82,27 @@ class AudioSessionMonitor(
     }
 
     private fun handlePlaybackChange() {
-        if (pendingResolve) return
-        pendingResolve = true
+        synchronized(this) {
+            if (isResolving) {
+                hasPendingChanges = true
+                return
+            }
+            isResolving = true
+        }
         Thread {
             try {
-                resolveFromDumpsys()
+                wakeLock?.acquire(10_000L)
+                do {
+                    hasPendingChanges = false
+                    resolveFromDumpsys()
+                } while (hasPendingChanges)
             } finally {
-                pendingResolve = false
+                try {
+                    if (wakeLock?.isHeld == true) wakeLock?.release()
+                } catch (_: Exception) {}
+                synchronized(this) {
+                    isResolving = false
+                }
             }
         }.start()
     }
@@ -168,12 +195,11 @@ class AudioSessionMonitor(
 
     private fun queryActivePlayers(): Map<Int, SessionInfo>? =
         try {
-            val process =
-                RootShell.exec(
+            val text =
+                RootShell.execAndRead(
                     "dumpsys audio | grep -E 'AudioPlaybackConfiguration|state:started|new player'",
                     timeoutSec = DUMPSYS_TIMEOUT_SEC,
                 )
-            val text = process.inputStream.bufferedReader().readText()
 
             val apcLines = text.lineSequence().filter { it.contains("AudioPlaybackConfiguration") }.toList()
             if (apcLines.isNotEmpty()) {

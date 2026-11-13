@@ -2,11 +2,18 @@ package com.llsl.viper4android.service
 
 import android.app.Notification
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.media.audiofx.AudioEffect
 import android.os.Binder
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.llsl.viper4android.R
@@ -95,6 +102,47 @@ class ViperService : LifecycleService() {
     @Volatile
     private var perAppPresets: Map<String, String> = emptyMap()
 
+    @Volatile
+    private var currentActivePresetName: String = ""
+
+    private val audioEffectReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val action = intent?.action ?: return
+            val sessionId = intent.getIntExtra(AudioEffect.EXTRA_AUDIO_SESSION, -1)
+            val pkg = intent.getStringExtra(AudioEffect.EXTRA_PACKAGE_NAME) ?: ""
+            if (sessionId <= 0) return
+
+            when (action) {
+                AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION -> {
+                    FileLogger.i("Service", "Received OPEN_AUDIO_EFFECT_CONTROL_SESSION: session=$sessionId pkg=$pkg")
+                    onPlaybackActive(sessionId, pkg)
+                }
+                AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION -> {
+                    FileLogger.i("Service", "Received CLOSE_AUDIO_EFFECT_CONTROL_SESSION: session=$sessionId pkg=$pkg")
+                    closeSession(sessionId)
+                }
+            }
+        }
+    }
+
+    fun updateActivePresetNotification(presetName: String) {
+        currentActivePresetName = presetName
+        updateNotification()
+    }
+
+    fun updateNotification() {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+        manager?.notify(NOTIFICATION_ID, buildNotification())
+    }
+
+    private fun showToastOnMain(message: String) {
+        Handler(Looper.getMainLooper()).post {
+            try {
+                Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).show()
+            } catch (_: Exception) {}
+        }
+    }
+
     private data class DecodedKernel(
         val samples: FloatArray,
         val rawBytes: ByteArray,
@@ -144,6 +192,13 @@ class ViperService : LifecycleService() {
         super.onCreate()
         startForeground(NOTIFICATION_ID, buildNotification())
         FileLogger.i("Service", "Service created")
+
+        val filter = IntentFilter().apply {
+            addAction(AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION)
+            addAction(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION)
+        }
+        ContextCompat.registerReceiver(this, audioEffectReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
+
         lifecycleScope.launch {
             ensureConfigLoaded()
             launch {
@@ -182,6 +237,11 @@ class ViperService : LifecycleService() {
     override fun onBind(intent: Intent): IBinder {
         super.onBind(intent)
         return binder
+    }
+
+    override fun onUnbind(intent: Intent): Boolean {
+        stateProvider = null
+        return super.onUnbind(intent)
     }
 
     private fun initGlobalEffect() {
@@ -259,6 +319,7 @@ class ViperService : LifecycleService() {
                 s
             }
         lastUiState = state
+        updateNotification()
         applyState(state, masterEnabled)
     }
 
@@ -315,6 +376,9 @@ class ViperService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        try {
+            unregisterReceiver(audioEffectReceiver)
+        } catch (_: Exception) {}
         stopSessionMonitor()
         audioOutputDetector?.stop()
         audioOutputDetector = null
@@ -408,6 +472,11 @@ class ViperService : LifecycleService() {
                 val base = currentDeviceState()
                 deserializeEffectPrefs(JSONObject(preset.settingsJson), base).also {
                     FileLogger.i("Service", "Per-App: Applied preset '$assignedPresetName' for $packageName (session $sessionId)")
+                    if (currentActivePresetName != "$assignedPresetName ($packageName)") {
+                        currentActivePresetName = "$assignedPresetName ($packageName)"
+                        updateNotification()
+                        showToastOnMain(getString(R.string.preset_applied_to_app, assignedPresetName, packageName))
+                    }
                 }
             } else {
                 currentDeviceState()
@@ -480,6 +549,7 @@ class ViperService : LifecycleService() {
 
     fun dispatchFullState(state: EffectState) {
         lastUiState = state
+        updateNotification()
         applyState(state, masterEnabled)
     }
 
@@ -659,10 +729,22 @@ class ViperService : LifecycleService() {
                 )
             }
 
+        val deviceName = audioOutputDetector?.activeDevice?.value?.name.orEmpty()
+        val contentText = buildString {
+            if (currentActivePresetName.isNotEmpty()) {
+                append("Preset: ").append(currentActivePresetName)
+            } else {
+                append(getString(R.string.notification_text))
+            }
+            if (deviceName.isNotEmpty()) {
+                append(" • ").append(deviceName)
+            }
+        }
+
         return NotificationCompat
             .Builder(this, SERVICE_CHANNEL_ID)
             .setContentTitle(getString(R.string.notification_title))
-            .setContentText(getString(R.string.notification_text))
+            .setContentText(contentText)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)
             .setContentIntent(pendingIntent)

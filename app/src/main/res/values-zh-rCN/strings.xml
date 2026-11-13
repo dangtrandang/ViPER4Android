@@ -221,6 +221,8 @@
     <string name="preset_tap_for_details">点击查看详情</string>
     <string name="preset_label_created">已创建</string>
     <string name="preset_label_updated">最后更新</string>
+    <string name="preset_applied">已应用预设：%1$s</string>
+    <string name="preset_applied_to_app">已为 %2$s 应用预设 \'%1$s\'</string>
 
     <!-- Driver Status -->
     <string name="driver_not_found">未找到驱动</string>

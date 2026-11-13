@@ -133,7 +133,13 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
             presets = presets,
             onSave = viewModel::savePreset,
             onLoad = { id ->
-                viewModel.loadPreset(id)
+                viewModel.loadPreset(id) { presetName ->
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.preset_applied, presetName),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
                 showPresetDialog = false
             },
             onDelete = viewModel::deletePreset,
@@ -179,7 +185,15 @@ fun MainScreen(viewModel: MainViewModel = hiltViewModel()) {
             devices = deviceSettings,
             activeDeviceId = state.activeDeviceId,
             onRename = viewModel::renameDevice,
-            onLoad = viewModel::loadDevicePreset,
+            onLoad = { deviceId ->
+                viewModel.loadDevicePreset(deviceId) { name ->
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.preset_applied, name),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            },
             onUpdate = viewModel::saveDevicePreset,
             onDelete = viewModel::deleteDeviceSettings,
             onDismiss = { showDeviceDialog = false },

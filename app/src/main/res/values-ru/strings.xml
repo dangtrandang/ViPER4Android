@@ -221,6 +221,8 @@
     <string name="preset_tap_for_details">Подробнее</string>
     <string name="preset_label_created">Создан</string>
     <string name="preset_label_updated">Последнее обновление</string>
+    <string name="preset_applied">Применен пресет: %1$s</string>
+    <string name="preset_applied_to_app">Применен пресет \'%1$s\' для %2$s</string>
 
     <!-- Driver Status -->
     <string name="driver_not_found">Драйвер не найден</string>

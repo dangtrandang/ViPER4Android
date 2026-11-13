@@ -43,6 +43,8 @@ Material Design 3 UI for ViPER4Android FX. Full feature set of the ViPER4Android
 - AIDL and legacy (non-AIDL) HAL support
 - Per-device profile management and auto switching
 - **Deep Per-App Dynamic Presets**: Assign dedicated presets to individual apps (e.g., YouTube -> Voice Clear, TikTok -> Bass Boost). The audio engine automatically applies custom presets per audio session without audio glitches or manual switching.
+- **Dynamic Active Preset Notifications & Toasts**: Shows active preset and audio device in real time on the persistent notification bar and provides instant Toast notifications on preset changes (both manual and per-app switching).
+- **Hardened Background Audio Processing**: Non-blocking asynchronous stream execution for dumpsys parsing, event queue drain prevention, broadcast panel listeners, and partial wake-lock management to keep audio effects active through screen-off and Doze mode.
 - Preset import / export
 - Global mode and per-app mode
 - In-app log viewer (tap `Driver Version` 7 times in Settings)
