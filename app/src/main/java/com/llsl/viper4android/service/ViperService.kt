@@ -417,6 +417,14 @@ class ViperService : LifecycleService() {
             return
         }
         if (globalMode) {
+            val assignedPreset = perAppPresets[packageName]
+            if (assignedPreset.isNullOrEmpty()) {
+                val activePkg = sessionMonitor?.getActivePackage().orEmpty()
+                if (activePkg.isNotEmpty() && activePkg != packageName && perAppPresets.containsKey(activePkg)) {
+                    FileLogger.d("Service", "Global mode: keeping active preset for $activePkg, ignoring unmapped $packageName")
+                    return
+                }
+            }
             FileLogger.i(
                 "Service",
                 "Global mode playback active: $packageName (session $sessionId)",

@@ -1,12 +1,15 @@
 package com.llsl.viper4android.audio
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.AudioPlaybackConfiguration
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.view.inputmethod.InputMethodManager
 import com.llsl.viper4android.utils.FileLogger
 import com.llsl.viper4android.utils.RootShell
 
@@ -59,20 +62,60 @@ class AudioSessionMonitor(
         resolveFromDumpsys()
     }
 
+    private val pendingCloses = mutableMapOf<Int, Runnable>()
+
     fun stop() {
         if (!registered) return
         audioManager.unregisterAudioPlaybackCallback(playbackCallback)
         registered = false
+        for (runnable in pendingCloses.values) {
+            mainHandler.removeCallbacks(runnable)
+        }
+        pendingCloses.clear()
         activePiids.clear()
         FileLogger.i(TAG, "Playback monitor stopped")
+    }
+
+    private fun cancelSessionClose(sessionId: Int) {
+        pendingCloses.remove(sessionId)?.let {
+            mainHandler.removeCallbacks(it)
+            FileLogger.i(TAG, "Cancelled pending close for session $sessionId")
+        }
+    }
+
+    private fun scheduleSessionClose(sessionId: Int) {
+        cancelSessionClose(sessionId)
+        val runnable = Runnable {
+            pendingCloses.remove(sessionId)
+            val stillActive = activePiids.values.any { it.sessionId == sessionId }
+            if (!stillActive) {
+                FileLogger.i(TAG, "Executing debounced session close: $sessionId")
+                onSessionClose(sessionId)
+            }
+        }
+        pendingCloses[sessionId] = runnable
+        mainHandler.postDelayed(runnable, 3000L)
+    }
+
+    private fun isNonMediaApp(pkg: String): Boolean {
+        if (pkg.isEmpty() || pkg.startsWith("android") || pkg == "com.android.systemui") return true
+        if (pkg.contains("launcher") || pkg.endsWith(".home") || pkg.contains("inputmethod")) return true
+        try {
+            val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+            val resolveInfos = context.packageManager.queryIntentActivities(homeIntent, 0)
+            if (resolveInfos.any { it.activityInfo?.packageName == pkg }) return true
+        } catch (_: Exception) {}
+        try {
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            if (imm?.enabledInputMethodList?.any { it.packageName == pkg } == true) return true
+        } catch (_: Exception) {}
+        return false
     }
 
     fun getActivePackage(): String {
         val currentMediaPkg =
             activePiids.values.lastOrNull {
-                it.packageName.isNotEmpty() &&
-                    !it.packageName.startsWith("android") &&
-                    it.packageName != "com.android.systemui"
+                it.packageName.isNotEmpty() && !isNonMediaApp(it.packageName)
             }?.packageName
         if (!currentMediaPkg.isNullOrEmpty()) {
             lastMediaPackage = currentMediaPkg
@@ -129,15 +172,11 @@ class AudioSessionMonitor(
 
             for (piid in newPiids) {
                 val info = discovered[piid] ?: continue
-                if (info.sessionId <= 0) continue
+                if (info.sessionId <= 0 || isNonMediaApp(info.packageName)) continue
+                cancelSessionClose(info.sessionId)
                 val alreadyTracked = activePiids.values.any { it.sessionId == info.sessionId }
                 activePiids[piid] = info
-                if (info.packageName.isNotEmpty() &&
-                    !info.packageName.startsWith("android") &&
-                    info.packageName != "com.android.systemui"
-                ) {
-                    lastMediaPackage = info.packageName
-                }
+                lastMediaPackage = info.packageName
                 FileLogger.i(
                     TAG,
                     "Active playback piid=$piid session=${info.sessionId} (${info.packageName}) alreadyTracked=$alreadyTracked",
@@ -147,14 +186,14 @@ class AudioSessionMonitor(
 
             for (piid in gonePiids) {
                 val info = activePiids.remove(piid) ?: continue
-                if (info.sessionId > 0) {
+                if (info.sessionId > 0 && !isNonMediaApp(info.packageName)) {
                     val stillActive = activePiids.values.any { it.sessionId == info.sessionId }
                     FileLogger.i(
                         TAG,
                         "Piid ended piid=$piid session=${info.sessionId} (${info.packageName}) stillActive=$stillActive",
                     )
                     if (!stillActive) {
-                        onSessionClose(info.sessionId)
+                        scheduleSessionClose(info.sessionId)
                     }
                 }
             }
@@ -177,6 +216,16 @@ class AudioSessionMonitor(
 
                 val sid = getAudioSessionIdMethod.invoke(config) as? Int
                 if (sid == null || sid <= 0) continue
+
+                try {
+                    val getAudioAttributesMethod = configClass.getMethod("getAudioAttributes")
+                    val attrs = getAudioAttributesMethod.invoke(config) as? AudioAttributes
+                    if (attrs != null && (attrs.usage == AudioAttributes.USAGE_ASSISTANCE_SONIFICATION ||
+                                          attrs.usage == AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE ||
+                                          attrs.usage == AudioAttributes.USAGE_NOTIFICATION)) {
+                        continue
+                    }
+                } catch (_: Exception) {}
 
                 // Some player use LL API do not have piid, make sure to fake one from session id
                 val piid = (getPlayerInterfaceIdMethod.invoke(config) as Int).let { if (it != 0) it else -sid }
@@ -207,6 +256,11 @@ class AudioSessionMonitor(
                 for (line in apcLines) {
                     val trimmed = line.trim()
                     if (!trimmed.contains("state:started")) continue
+                    if (trimmed.contains("SoundPool") ||
+                        trimmed.contains("USAGE_ASSISTANCE_SONIFICATION") ||
+                        trimmed.contains("USAGE_ASSISTANCE_NAVIGATION_GUIDANCE") ||
+                        trimmed.contains("CONTENT_TYPE_SONIFICATION")
+                    ) continue
 
                     val piid = PIID_PATTERN.find(trimmed)?.groupValues?.get(1)?.toIntOrNull() ?: continue
                     val sid = SESSION_PATTERN.find(trimmed)?.groupValues?.get(1)?.toIntOrNull() ?: 0
@@ -225,6 +279,11 @@ class AudioSessionMonitor(
                 val playerSessions = mutableMapOf<Int, SessionInfo>()
                 for (line in currentText.lineSequence()) {
                     val trimmed = line.trim()
+                    if (trimmed.contains("SoundPool") ||
+                        trimmed.contains("USAGE_ASSISTANCE_SONIFICATION") ||
+                        trimmed.contains("USAGE_ASSISTANCE_NAVIGATION_GUIDANCE") ||
+                        trimmed.contains("CONTENT_TYPE_SONIFICATION")
+                    ) continue
                     val piid =
                         PIID_PATTERN
                             .find(trimmed)
